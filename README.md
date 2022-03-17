@@ -1,6 +1,8 @@
-# Arduino CAN MCP2515-nb [![Build Status](https://travis-ci.org/WitchCraftWorks/arduino-MCP2515-nb.svg?branch=master)](https://travis-ci.org/WitchCraftWorks/arduino-MCP2515-nb)
+# PiPico CAN MCP2515-nb
 
-This is an Arduino library for sending and receiving data using CAN bus with the MCP2515 CAN controller.
+This is a direct port of https://github.com/WitchCraftWorks/arduino-MCP2515-nb to the raspberry pi pico sdk. No extra code added, just replaced arduino functions with some from the pico sdk.
+
+Note: this library is untested. Use at your own risk.
 
 This library supports "non-blocking" write packet operations. Which means this library will not wait until the CAN controller has written the packet
 onto the CAN bus. The library supports defer checking the status to a later time. However that means that no new packet can be written to the TX buffer
@@ -21,11 +23,11 @@ Please open an issue with your platform, if your platform does not include STL, 
 # Compatible Hardware
 
 * [Microchip MCP2515](http://www.microchip.com/wwwproducts/en/en010406) based boards/shields
-  * [Arduino MKR CAN shield](https://store.arduino.cc/arduino-mkr-can-shield)
+  * [PiPico MKR CAN shield](https://store.PiPico.cc/PiPico-mkr-can-shield)
 
 ## Microchip MCP2515 wiring
 
-| Microchip MCP2515 | Arduino |
+| Microchip MCP2515 | PiPico |
 | :---------------: | :-----: |
 | VCC | 5V |
 | GND | GND |
@@ -36,13 +38,13 @@ Please open an issue with your platform, if your platform does not include STL, 
 | INT | 2 |
 
 
-`CS` and `INT` pins can be changed by using `CAN.setPins(cs, irq)`. `INT` pin is optional, it is only needed for receive callback mode. If `INT` pin is used, it **must** be interrupt capable via [`attachInterrupt(...)`](https://www.arduino.cc/en/Reference/AttachInterrupt).
+`CS` and `INT` pins can be changed by using `CAN.setPins(cs, irq)`. `INT` pin is optional, it is only needed for receive callback mode. If `INT` pin is used, it **must** be interrupt capable via [`attachInterrupt(...)`](https://www.PiPico.cc/en/Reference/AttachInterrupt).
 
 **NOTE**: Logic level converters must be used for boards which operate at 3.3V.
 
 # Installation
 
-Download zip from GitHub and import library as zip in Arduino IDE.
+Download zip from GitHub and import library as zip in PiPico IDE.
 
 ## API
 

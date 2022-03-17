@@ -1,6 +1,7 @@
 /**
  * CAN MCP2515_nb
  * Copyright 2020 WitchCraftWorks Team, All Rights Reserved
+ * Modified 2022 Alexandru Anastasiu
  *
  * Licensed under Apache 2.0
  */

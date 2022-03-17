@@ -1,14 +1,14 @@
 /**
  * CAN MCP2515_nb
  * Copyright 2020 WitchCraftWorks Team, All Rights Reserved
- *
+ * Modified 2022 Alexandru Anastasiu
+ * 
  * Licensed under Apache 2.0
  */
 
 #ifndef CANPACKET_H
 #define CANPACKET_H
 
-#include <Arduino.h>
 #include "MCP2515.h"
 
 class CANPacket {

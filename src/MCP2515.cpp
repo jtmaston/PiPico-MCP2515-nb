@@ -1,6 +1,7 @@
 /**
  * CAN MCP2515_nb
  * Copyright 2020 WitchCraftWorks Team, All Rights Reserved
+ * Modified 2022 Alexandru Anastasiu
  *
  * Licensed under Apache 2.0
  */
@@ -8,6 +9,7 @@
 #include "MCP2515.h"
 #include "CANPacket.h"
 #include "Utilities.cpp"
+#include "hardware/sync.h"
 
 #define TX_BUFFER_NUM 0
 
@@ -68,87 +70,11 @@
 
 // ----------- Interrupt garbage -----------
 
-#if defined(ARDUINO_ARCH_SAMD)
-# include <wiring_private.h>
-
-# define internalPreviousInterruptState() EIC->INTENSET.reg
-# define internalPinToInterrupt(n, prev) _internalPinToInterrupt(n, prev)
-# define _internalAttachInterrupt(pin, func, mode) attachInterrupt(pin, func, mode)
-
-static inline __attribute__((always_inline))
-int _internalPinToInterrupt(int pin, uint32_t prev) {
-    uint32_t reg = EIC->INTENSET.reg & ~prev;
-
-    for (uint32_t i = EXTERNAL_INT_0; i <= EXTERNAL_INT_15; i++) {
-        if ((reg & (1 << i))) {
-            return i;
-        }
-    }
-
-    return -1;
-}
-
-static inline __attribute__((always_inline))
-int interruptGetCalledPin() {
-    for (uint32_t i = EXTERNAL_INT_0; i <= EXTERNAL_INT_15; i++) {
-        if ((EIC->INTFLAG.reg & (1 << i))) {
-            return i;
-        }
-    }
-
-    return -1;
-}
-#else
 MCP2515* GLOBAL_MCP = nullptr;
-#endif
+
 
 // --- Generic Interrupts ---
 
-#ifdef __MCP2515_MULTI_INTERRUPTS_ENABLE__
-struct mcp_interrupt_info {
-    uint8_t pin = -1;
-    MCP2515* mcp = nullptr;
-};
-
-static mcp_interrupt_info _mcp_interrupts[EXTERNAL_NUM_INTERRUPTS];
-static int _mcp_interrupts_counter = 0;
-
-int _mcp_interrupts_find(uint8_t pin, mcp_interrupt_info* info) {
-    for (int i = 0; i < _mcp_interrupts_counter; i++) {
-        if (_mcp_interrupts[i].pin == pin) {
-            *info = _mcp_interrupts[i];
-            return i;
-        }
-    }
-
-    return MCP2515_ERRORCODES::NOENT;
-}
-
-void _mcp_interrupts_insert(uint8_t pin, MCP2515* mcp) {
-    mcp_interrupt_info info;
-    int pos = _mcp_interrupts_find(pin, &info);
-
-    info.pin = pin;
-    info.mcp = mcp;
-
-    if (pos < 0) {
-        memcpy(&_mcp_interrupts[_mcp_interrupts_counter], &info, sizeof(info));
-        _mcp_interrupts_counter++;
-    } else {
-        memcpy(&_mcp_interrupts[pos], &info, sizeof(info));
-    }
-}
-
-void _mcp_interrupts_remove(uint8_t pin, MCP2515* mcp) {
-    mcp_interrupt_info info;
-    int pos = _mcp_interrupts_find(pin, &info);
-
-    if (pos >= 0 && info.mcp != nullptr) {
-        info.mcp = nullptr;
-        memcpy(&_mcp_interrupts[_mcp_interrupts_counter], &info, sizeof(info));
-    }
-}
-#endif
 
 // ----------- End Interrupt Garbage -----------
 
@@ -156,7 +82,8 @@ MCP2515::MCP2515() :
     _csPin(MCP2515_DEFAULT_CS_PIN),
     _intPin(MCP2515_DEFAULT_INT_PIN),
     _clockFrequency(16e6),
-    _spiSettings(10e6, MSBFIRST, SPI_MODE0),
+//    _spiSettings(10e6, MSBFIRST, SPI_MODE0),
+    _spi(spi0),
 #ifndef MCP2515_DISABLE_ASYNC_TX_QUEUE
     _canpacketTxQueue(std::queue<CANPacket*>())
 #endif
@@ -171,10 +98,32 @@ MCP2515::~MCP2515() {
 #endif
 }
 
-int MCP2515::begin(long baudRate) {
-    pinMode(_csPin, OUTPUT);
+int MCP2515::begin(long baudRate, uint8_t MISO = 4, uint8_t MOSI = 3, uint8_t SCK = 2, uint8_t CS = 5, spi_inst_t * SPI = nullptr) {
 
-    SPI.begin();
+    if( SPI == nullptr)
+        return -1;
+
+    _csPin = CS;
+    _spi = SPI;
+
+    gpio_init(_csPin);
+    gpio_set_dir(_csPin, true);
+    gpio_put(_csPin, 1);
+
+    spi_init(_spi, baudRate);
+    spi_set_format(
+        _spi,
+        8,
+        SPI_CPOL_1,
+        SPI_CPHA_1,
+        SPI_MSB_FIRST
+    );
+
+    gpio_set_function(MISO, GPIO_FUNC_SPI);
+    gpio_set_function(MOSI, GPIO_FUNC_SPI);
+    gpio_set_function(SCK, GPIO_FUNC_SPI);
+
+    
     reset();
 
     writeRegister(REG_CANCTRL, 0x80);
@@ -218,7 +167,8 @@ int MCP2515::begin(long baudRate) {
 
 void MCP2515::end() {
     reset();
-    SPI.end();
+    //SPI.end();
+    spi_deinit(_spi);
 }
 
 uint8_t MCP2515::getStatus() {
@@ -235,7 +185,8 @@ void MCP2515::setPins(int cs, int irq) {
 }
 
 void MCP2515::setSPIFrequency(uint32_t frequency) {
-    _spiSettings = SPISettings(frequency, MSBFIRST, SPI_MODE0);
+    //_spiSettings = SPISettings(frequency, MSBFIRST, SPI_MODE0);
+    spi_set_baudrate(_spi, frequency);
 }
 
 void MCP2515::setClockFrequency(long clockFrequency) {
@@ -389,7 +340,7 @@ int MCP2515::setSleepMode() {
     // The MCP2515 is active and has not yet entered Sleep mode until these bits
     // indicate that Sleep mode has been entered."
     while ((readRegister(REG_CANCTRL) & 0xE0) != 0x20) {
-        yield();
+        
     }
 
     if (_allowInvalidRx) {
@@ -475,17 +426,23 @@ int MCP2515::receivePacket(CANPacket* packet) {
         modifyRegister(REG_CANINTF, FLAG_RXnIF(n), 0x00);
     } else {
         // READ RX BUFFER
-        SPI.beginTransaction(_spiSettings);
-        digitalWrite(_csPin, LOW);
+        //SPI.beginTransaction(_spiSettings);
+        //digitalWrite(_csPin, LOW);
+        gpio_put(_csPin, false);
+        uint8_t buffer[] = { (0x92 | (n << 2)) };
+        spi_write_blocking(_spi, buffer, 1);
 
-        SPI.transfer((0x92 | (n << 2)));
+        //SPI.transfer((0x92 | (n << 2)));
 
-        for (int i = 0; i < packet->_dlc; i++) {
+       /* for (int i = 0; i < packet->_dlc; i++) {
             packet->writeData(SPI.transfer(0x00));
-        }
+        }*/
 
-        digitalWrite(_csPin, HIGH);
-        SPI.endTransaction();
+        uint8_t incoming_buffer [packet->_dlc];
+        spi_read_blocking(_spi, 0, incoming_buffer, packet->_dlc);
+        gpio_put(_csPin, true);
+        //digitalWrite(_csPin, HIGH);
+        //SPI.endTransaction();
     }
 
     packet->end();
@@ -508,6 +465,7 @@ int MCP2515::receivePacket(CANPacket* packet) {
 }
 
 void MCP2515::onReceivePacket(void(*callback)(CANPacket*)) {
+    /*
     _onReceivePacket = callback;
     pinMode(_intPin, INPUT);
 
@@ -539,8 +497,10 @@ void MCP2515::onReceivePacket(void(*callback)(CANPacket*)) {
 #ifdef SPI_HAS_NOTUSINGINTERRUPT
         SPI.notUsingInterrupt(digitalPinToInterrupt(_intPin));
 #endif
-    }
+    }*/
 }
+
+
 
 size_t MCP2515::getTxQueueLength() {
 #ifdef MCP2515_DISABLE_ASYNC_TX_QUEUE
@@ -619,11 +579,13 @@ int MCP2515::writePacket(CANPacket* packet, bool nowait) {
         uint8_t txbncntl = readRegister(REG_TXBnCTRL(TX_BUFFER_NUM));
         if (txbncntl & 0x08) {
             // TX buffer not empty, cancel write
-            return MCP2515_ERRORCODES::BUSY;
+            //return MCP2515_ERRORCODES::BUSY;
+            return -1;
         }
     }
 
-    noInterrupts();
+    //noInterrupts();
+    interrupt_state =  save_and_disable_interrupts();
     int n = TX_BUFFER_NUM;
 
     // Clear bits 3-6
@@ -651,23 +613,34 @@ int MCP2515::writePacket(CANPacket* packet, bool nowait) {
         writeRegister(REG_TXBnDLC(n), packet->_dlc);
 
         // LOAD TX BUFFER
-        SPI.beginTransaction(_spiSettings);
-        digitalWrite(_csPin, LOW);
+        //SPI.beginTransaction(_spiSettings);
+        //digitalWrite(_csPin, LOW);
 
-        SPI.transfer(0x41);
+        //SPI.transfer(0x41);
 
+        gpio_put(_csPin, false);
+        uint8_t buffer[] = {0x41};
+        
+        spi_write_blocking(_spi, buffer, 1);
+        /*
         for (int i = 0; i < packet->_dlc; i++) {
             SPI.transfer(packet->_data[i]);
         }
 
         digitalWrite(_csPin, HIGH);
-        SPI.endTransaction();
+        SPI.endTransaction();*/
+
+        uint8_t incoming_buffer[packet->_dlc];
+        spi_read_blocking(_spi, 0, incoming_buffer, packet->_dlc);
+        gpio_put(_csPin, true);
+
     }
 
     modifyRegister(REG_TXBnCTRL(n), 0x08, 0x08);
 
     packet->_status |= CANPacket::STATUS_TX_WRITTEN;
-    interrupts();
+    //interrupts();
+    restore_interrupts(interrupt_state);
 
     if (nowait) {
         return MCP2515_ERRORCODES::OK;
@@ -700,7 +673,7 @@ int MCP2515::waitForPacketStatus(CANPacket* packet, unsigned long status, bool n
         return MCP2515_ERRORCODES::INVAL;
     }
 
-    unsigned long ms = millis();
+    unsigned long ms = to_ms_since_boot(get_absolute_time());
 
     do {
         if (handleMessageTransmit(packet, TX_BUFFER_NUM, false) != MCP2515_ERRORCODES::AGAIN) {
@@ -708,9 +681,10 @@ int MCP2515::waitForPacketStatus(CANPacket* packet, unsigned long status, bool n
         }
 
         if (!nowait) {
-            delayMicroseconds(10);
+            //delayMicroseconds(10);
+            sleep_us(10);
         }
-    } while (!nowait && (timeout == 0 || (millis() - ms) < timeout));
+    } while (!nowait && (timeout == 0 || (to_ms_since_boot(get_absolute_time()) - ms) < timeout));
 
     return MCP2515_ERRORCODES::AGAIN;
 }
@@ -755,10 +729,10 @@ int MCP2515::handleMessageTransmit(CANPacket* packet, int n, bool cond) {
             break;
         }
 
-        yield();
+        //yield();
 
         if (cond) {
-            delayMicroseconds(10);
+            sleep_us(10);
         }
 
         if ((packet->_status & CANPacket::STATUS_TX_PENDING) == 0) {
@@ -966,7 +940,7 @@ void MCP2515::_handleInterruptPacket() {
         CANPacket packet = CANPacket();
 
         if (receivePacket(&packet) == 0) {
-            _onReceivePacket(&packet);
+            //onReceivePacket(&packet);
         } else {
             break;
         }
@@ -976,7 +950,7 @@ void MCP2515::_handleInterruptPacket() {
 }
 
 void MCP2515::reset() {
-    SPI.beginTransaction(_spiSettings);
+    /*SPI.beginTransaction(_spiSettings);
     digitalWrite(_csPin, LOW);
 
     SPI.transfer(0xC0);
@@ -984,13 +958,29 @@ void MCP2515::reset() {
     digitalWrite(_csPin, HIGH);
     SPI.endTransaction();
 
-    delayMicroseconds(10);
-}
+    delayMicroseconds(10);*/
+
+    gpio_put(_csPin, false);
+
+    uint8_t buffer[] = {0xC0};
+    spi_write_blocking(_spi, buffer, 1);
+    sleep_us(10);
+
+    gpio_put(_csPin, true);
+
+    }
 
 uint8_t MCP2515::readRegister(uint8_t address) {
-    uint8_t value;
+    uint8_t value[1];
+    uint8_t buffer[] = {0x03, address};
 
-    SPI.beginTransaction(_spiSettings);
+
+    gpio_put(_csPin, false);
+    spi_write_blocking(_spi, buffer, 2);
+    spi_read_blocking(_spi, 0, value, 1);
+    gpio_put(_csPin, true);
+
+    /*SPI.beginTransaction(_spiSettings);
     digitalWrite(_csPin, LOW);
 
     SPI.transfer(0x03);
@@ -998,13 +988,19 @@ uint8_t MCP2515::readRegister(uint8_t address) {
     value = SPI.transfer(0x00);
 
     digitalWrite(_csPin, HIGH);
-    SPI.endTransaction();
+    SPI.endTransaction();*/
 
-    return value;
+    return value[0];
 }
 
 void MCP2515::modifyRegister(uint8_t address, uint8_t mask, uint8_t value) {
-    SPI.beginTransaction(_spiSettings);
+
+    gpio_put(_csPin, false);
+    uint8_t buffer[] = {0x05, address, mask, value };
+    spi_write_blocking(_spi, buffer, 4);
+    gpio_put(_csPin, true);
+
+    /*SPI.beginTransaction(_spiSettings);
     digitalWrite(_csPin, LOW);
 
     SPI.transfer(0x05);
@@ -1013,11 +1009,17 @@ void MCP2515::modifyRegister(uint8_t address, uint8_t mask, uint8_t value) {
     SPI.transfer(value);
 
     digitalWrite(_csPin, HIGH);
-    SPI.endTransaction();
+    SPI.endTransaction();*/
+
 }
 
 void MCP2515::writeRegister(uint8_t address, uint8_t value) {
-    SPI.beginTransaction(_spiSettings);
+    gpio_put(_csPin, false);
+    uint8_t buffer[] = {0x02, address, value};
+    spi_write_blocking(_spi, buffer, 3);
+    gpio_put(_csPin, true);
+
+    /*SPI.beginTransaction(_spiSettings);
 
     digitalWrite(_csPin, LOW);
     SPI.transfer(0x02);
@@ -1025,5 +1027,7 @@ void MCP2515::writeRegister(uint8_t address, uint8_t value) {
     SPI.transfer(value);
 
     digitalWrite(_csPin, HIGH);
-    SPI.endTransaction();
+    SPI.endTransaction();*/
+
+
 }

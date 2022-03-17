@@ -1,6 +1,7 @@
 /**
  * CAN MCP2515_nb
  * Copyright 2020 WitchCraftWorks Team, All Rights Reserved
+ * Modified 2022 Alexandru Anastasiu
  *
  * Licensed under Apache 2.0
  */
@@ -11,16 +12,12 @@
 #undef max
 #undef min
 
-#ifdef ARDUINO_ARCH_AVR
-# include <avr_stl.h>
-#endif
+#include <queue>
 
-#ifndef MCP2515_DISABLE_ASYNC_TX_QUEUE
-# include <queue>
-#endif
+#include "pico/stdlib.h"
+#include "hardware/spi.h"
 
-#include <Arduino.h>
-#include <SPI.h>
+#include <cstring>
 
 // According to VS there is a "OVERFLOW" macro defined in corecrt_math.h
 #undef OVERFLOW
@@ -108,7 +105,7 @@ public:
     MCP2515();
     ~MCP2515();
 
-    int begin(long baudRate);
+    int begin(long baudRate, uint8_t MISO, uint8_t MOSI, uint8_t SCK, uint8_t CS, spi_inst_t * SPI);
     void end();
 
     uint8_t getStatus();
@@ -159,13 +156,13 @@ private:
     int _csPin;
     int _intPin;
     long _clockFrequency;
-    SPISettings _spiSettings;
-
-    void (*_onReceivePacket)(CANPacket*);
+    spi_inst_t* _spi;
 
     bool _oneShotMode = false;
     bool _allowInvalidRx = false;
     uint8_t _rxErrorCount = 0;
+
+    uint32_t interrupt_state;
 
 #ifndef MCP2515_DISABLE_ASYNC_TX_QUEUE
     std::queue<CANPacket*> _canpacketTxQueue;
