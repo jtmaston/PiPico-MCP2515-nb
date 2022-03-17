@@ -4,6 +4,8 @@ This is a direct port of https://github.com/WitchCraftWorks/arduino-MCP2515-nb t
 
 Note: this library is untested. Use at your own risk.
 
+# README.MD HAS NOT BEEN UPDATED. SORRY!
+
 This library supports "non-blocking" write packet operations. Which means this library will not wait until the CAN controller has written the packet
 onto the CAN bus. The library supports defer checking the status to a later time. However that means that no new packet can be written to the TX buffer
 of the CAN controller until the library has confirmed the status of the CAN packet.
