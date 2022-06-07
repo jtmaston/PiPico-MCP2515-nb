@@ -389,7 +389,7 @@ int MCP2515::setOneShotMode(bool enable) {
     _oneShotMode = enable;
     return MCP2515_ERRORCODES::OK;
 }
-
+#include <iostream>
 int MCP2515::receivePacket(CANPacket* packet) {
     int n;
     uint8_t intf = readRegister(REG_CANINTF);
@@ -438,13 +438,13 @@ int MCP2515::receivePacket(CANPacket* packet) {
             packet->writeData(SPI.transfer(0x00));
         }*/
 
-        uint8_t incoming_buffer [packet->_dlc];
-        spi_read_blocking(_spi, 0, incoming_buffer, packet->_dlc);
+        spi_read_blocking(_spi, 0x00, packet->_data, packet->_dlc);
         gpio_put(_csPin, true);
+
         //digitalWrite(_csPin, HIGH);
         //SPI.endTransaction();
     }
-
+    
     packet->end();
 
     if (_allowInvalidRx) {
